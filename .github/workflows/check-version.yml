@@ -1,0 +1,41 @@
+name: Surveillance version Ninja Return Legend
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ninja-version
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Vérifier la version
+        env:
+          VERSION_URL: ${{ secrets.VERSION_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VERSION_REGEX: ${{ secrets.VERSION_REGEX }}
+          MENTION_ROLE_ID: ${{ secrets.MENTION_ROLE_ID }}
+        run: python3 ninja_version_bot.py --once
+
+      - name: Sauvegarder la version connue
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "version-bot"
+            git config user.email "version-bot@users.noreply.github.com"
+            git add state.json
+            git commit -m "Mise à jour de la version connue"
+            git push
+          fi
