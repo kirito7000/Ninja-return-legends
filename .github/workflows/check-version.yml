@@ -2,7 +2,7 @@ name: Surveillance version Ninja Return Legend
 
 on:
   schedule:
-    - cron: "15 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
