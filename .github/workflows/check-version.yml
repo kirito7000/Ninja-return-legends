@@ -26,6 +26,7 @@ jobs:
         env:
           VERSION_URL: ${{ secrets.VERSION_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
           VERSION_REGEX: ${{ secrets.VERSION_REGEX }}
           MENTION_ROLE_ID: ${{ secrets.MENTION_ROLE_ID }}
         run: python3 ninja_version_bot.py --once
