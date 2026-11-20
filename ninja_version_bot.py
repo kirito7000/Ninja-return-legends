@@ -122,15 +122,28 @@ def check_once(cfg: dict) -> None:
     json_info = extract_json_info(page)
     download_url = json_info[1] if json_info else None
     if not version:
-        logging.warning("Aucune version trouvée sur %s (vérifie VERSION_REGEX).", cfg["url"])
-        return
+        raise RuntimeError("aucune version trouvée dans la réponse du site")
 
     state = read_state(cfg["state_file"])
     old = state.get("version")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+    recovered = state.get("failures", 0) > 0
+    if recovered and state.get("alerted"):
+        try:
+            send_discord(
+                cfg["alert_webhook"],
+                f"✅ Le bot lit de nouveau la version de **{cfg['game']}** (version actuelle : `{version}`).",
+            )
+        except OSError as exc:
+            logging.warning("Message de retour à la normale non envoyé : %s", exc)
+
     if old == version:
         logging.info("Version inchangée : %s", version)
+        if recovered:
+            state["failures"] = 0
+            state["alerted"] = False
+            write_state(cfg["state_file"], state)
         return
 
     if old is None:
@@ -153,6 +166,24 @@ def check_once(cfg: dict) -> None:
     write_state(cfg["state_file"], {"version": version, "previous": old, "last_check": now, "changed_at": now})
 
 
+def record_failure(cfg: dict, reason: str) -> None:
+    """Compte les échecs de suite et prévient sur Discord une seule fois."""
+    state = read_state(cfg["state_file"])
+    count = int(state.get("failures", 0)) + 1
+    state["failures"] = count
+    if count >= cfg["fail_threshold"] and not state.get("alerted"):
+        try:
+            send_discord(
+                cfg["alert_webhook"],
+                f"⚠️ Le bot n'arrive plus à lire la version de **{cfg['game']}** "
+                f"({count} échecs de suite). Raison : {reason}",
+            )
+            state["alerted"] = True
+        except OSError as exc:
+            logging.warning("Alerte Discord non envoyée : %s", exc)
+    write_state(cfg["state_file"], state)
+
+
 def build_config() -> dict:
     load_env(HERE / ".env")
     cfg = {
@@ -160,12 +191,15 @@ def build_config() -> dict:
         "regex": os.environ.get("VERSION_REGEX", "").strip() or DEFAULT_REGEX,
         "webhook": os.environ.get("DISCORD_WEBHOOK_URL", "").strip(),
         "interval": max(60, int(os.environ.get("CHECK_INTERVAL_SECONDS", "600"))),
+        "fail_threshold": max(1, int(os.environ.get("FAIL_ALERT_AFTER", "3") or "3")),
         "game": os.environ.get("GAME_NAME", "Ninja Return Legend"),
         "announce_first": os.environ.get("ANNOUNCE_FIRST_RUN", "true").lower() in ("1", "true", "yes", "oui"),
         "state_file": HERE / os.environ.get("STATE_FILE", "state.json"),
     }
     role = os.environ.get("MENTION_ROLE_ID", "").strip()
     cfg["mention"] = f"<@&{role}> " if role.isdigit() else ""
+    # Salon séparé pour les alertes de panne (sinon : le salon principal)
+    cfg["alert_webhook"] = os.environ.get("ALERT_WEBHOOK_URL", "").strip() or cfg["webhook"]
     return cfg
 
 
@@ -204,8 +238,10 @@ def main() -> int:
             check_once(cfg)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             logging.warning("Erreur réseau : %s (nouvel essai au prochain cycle)", exc)
-        except Exception:  # ne jamais laisser le bot mourir
+            record_failure(cfg, f"erreur réseau ({exc})")
+        except Exception as exc:  # ne jamais laisser le bot mourir
             logging.exception("Erreur inattendue")
+            record_failure(cfg, str(exc))
         if args.once:
             return 0
         time.sleep(cfg["interval"])
