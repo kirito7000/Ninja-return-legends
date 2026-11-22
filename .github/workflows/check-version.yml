@@ -2,11 +2,11 @@ name: Surveillance version Ninja Return Legend
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch:
+    - cron: "*/15 * * * *"   # toutes les 15 minutes (GitHub peut retarder un peu)
+  workflow_dispatch:          # lancement manuel possible
 
 permissions:
-  contents: write
+  contents: write             # pour sauvegarder state.json
 
 concurrency:
   group: ninja-version
@@ -27,6 +27,8 @@ jobs:
           VERSION_URL: ${{ secrets.VERSION_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          LOG_WEBHOOK_URL: ${{ secrets.LOG_WEBHOOK_URL }}
+          LOG_EVERY_CHECK: ${{ secrets.LOG_EVERY_CHECK }}
           VERSION_REGEX: ${{ secrets.VERSION_REGEX }}
           MENTION_ROLE_ID: ${{ secrets.MENTION_ROLE_ID }}
         run: python3 ninja_version_bot.py --once
