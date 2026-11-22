@@ -116,6 +116,29 @@ def write_state(path: Path, state: dict) -> None:
     tmp.replace(path)
 
 
+def run_link() -> str:
+    """Lien vers le lancement GitHub Actions en cours (vide hors GitHub)."""
+    server = os.environ.get("GITHUB_SERVER_URL")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    return f"{server}/{repo}/actions/runs/{run_id}" if server and repo and run_id else ""
+
+
+def log_discord(cfg: dict, text: str, routine: bool = False) -> None:
+    """Envoie une ligne de journal dans le salon des logs (LOG_WEBHOOK_URL), si configuré.
+
+    routine=True : message de vérification « normale », envoyé seulement si LOG_EVERY_CHECK est actif.
+    """
+    if not cfg.get("log_webhook") or (routine and not cfg["log_every_check"]):
+        return
+    link = run_link()
+    line = f"<t:{int(time.time())}:T> {text}" + (f" · [détails]({link})" if link else "")
+    try:
+        send_discord(cfg["log_webhook"], line)
+    except OSError as exc:
+        logging.warning("Log Discord non envoyé : %s", exc)
+
+
 def check_once(cfg: dict) -> None:
     page = fetch_page(cfg["url"])
     version = extract_version(page, cfg["regex"])
@@ -138,8 +161,12 @@ def check_once(cfg: dict) -> None:
         except OSError as exc:
             logging.warning("Message de retour à la normale non envoyé : %s", exc)
 
+    if recovered:
+        log_discord(cfg, f"✅ Retour à la normale : version `{version}` lue de nouveau")
+
     if old == version:
         logging.info("Version inchangée : %s", version)
+        log_discord(cfg, f"🔎 Vérification OK : version `{version}` inchangée", routine=True)
         if recovered:
             state["failures"] = 0
             state["alerted"] = False
@@ -148,10 +175,12 @@ def check_once(cfg: dict) -> None:
 
     if old is None:
         logging.info("Première exécution, version enregistrée : %s", version)
+        log_discord(cfg, f"🆕 Première exécution : version `{version}` enregistrée")
         if cfg["announce_first"]:
             send_discord(cfg["webhook"], f"{cfg['mention']}Version actuelle de **{cfg['game']}** : `{version}`".strip())
     else:
         logging.info("Nouvelle version : %s -> %s", old, version)
+        log_discord(cfg, f"🥷 Nouvelle version détectée : `{old}` → `{version}`")
         embed = {
             "title": f"🥷 Mise à jour de {cfg['game']} !",
             "description": f"La version est passée de `{old}` à **`{version}`**.",
@@ -171,6 +200,7 @@ def record_failure(cfg: dict, reason: str) -> None:
     state = read_state(cfg["state_file"])
     count = int(state.get("failures", 0)) + 1
     state["failures"] = count
+    log_discord(cfg, f"❌ Échec n°{count} : {reason}")
     if count >= cfg["fail_threshold"] and not state.get("alerted"):
         try:
             send_discord(
@@ -200,6 +230,9 @@ def build_config() -> dict:
     cfg["mention"] = f"<@&{role}> " if role.isdigit() else ""
     # Salon séparé pour les alertes de panne (sinon : le salon principal)
     cfg["alert_webhook"] = os.environ.get("ALERT_WEBHOOK_URL", "").strip() or cfg["webhook"]
+    # Salon des logs (optionnel) : une ligne par vérification ; LOG_EVERY_CHECK=false -> seulement changements et échecs
+    cfg["log_webhook"] = os.environ.get("LOG_WEBHOOK_URL", "").strip()
+    cfg["log_every_check"] = os.environ.get("LOG_EVERY_CHECK", "true").strip().lower() not in ("0", "false", "non", "no")
     return cfg
 
 
