@@ -30,6 +30,7 @@ jobs:
           BUMP_INTERVAL_MIN: ${{ secrets.BUMP_INTERVAL_MIN }}
           BUMP_QUIET_FROM: ${{ secrets.BUMP_QUIET_FROM }}
           BUMP_QUIET_TO: ${{ secrets.BUMP_QUIET_TO }}
+          BUMP_DELETE_PREVIOUS: ${{ secrets.BUMP_DELETE_PREVIOUS }}
         run: python3 bump_reminder.py
 
       - name: Sauvegarder l'heure du dernier rappel
