@@ -88,6 +88,28 @@ def is_quiet_now() -> bool:
     return (s <= hour < e) if s < e else (hour >= s or hour < e)
 
 
+def run_link() -> str:
+    """Lien vers le lancement GitHub Actions en cours (vide hors GitHub)."""
+    server, repo, run_id = env("GITHUB_SERVER_URL"), env("GITHUB_REPOSITORY"), env("GITHUB_RUN_ID")
+    return f"{server}/{repo}/actions/runs/{run_id}" if server and repo and run_id else ""
+
+
+def log_line(text: str, routine: bool = False) -> None:
+    """Écrit une ligne dans le salon de logs (LOG_WEBHOOK_URL), si configuré.
+
+    routine=True : vérification « normale » sans rappel, envoyée seulement si BUMP_LOG_EVERY_CHECK est actif.
+    """
+    webhook = env("LOG_WEBHOOK_URL")
+    if not webhook or (routine and env("BUMP_LOG_EVERY_CHECK", "false").lower() not in ("1", "true", "oui", "yes")):
+        return
+    link = run_link()
+    line = f"<t:{int(time.time())}:T> {text}" + (f" · [détails]({link})" if link else "")
+    try:
+        send(webhook, line, {"parse": []})
+    except (urllib.error.URLError, TimeoutError, OSError):
+        pass
+
+
 def read_state() -> dict:
     try:
         return json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -119,10 +141,13 @@ def main() -> int:
 
     if not args.force:
         if now - last < interval:
-            print(f"Pas encore l'heure (dernier rappel il y a {int((now - last) // 60)} min).")
+            minutes = int((now - last) // 60)
+            print(f"Pas encore l'heure (dernier rappel il y a {minutes} min).")
+            log_line(f"🔎 Rappel bump : pas encore l'heure (dernier rappel il y a {minutes} min)", routine=True)
             return 0
         if is_quiet_now():
             print("Heures calmes : pas de rappel.")
+            log_line("🌙 Rappel bump : heures calmes, pas de rappel", routine=True)
             return 0
 
     # Un seul rappel visible à la fois : on supprime l'ancien avant d'en poster un nouveau
@@ -134,9 +159,11 @@ def main() -> int:
         message_id = send(webhook, content, allowed)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         print(f"Échec d'envoi : {exc}", file=sys.stderr)
+        log_line(f"❌ Rappel bump : échec d'envoi ({exc})")
         return 0  # on réessaiera au prochain passage
     STATE_FILE.write_text(json.dumps({"last_ping": now, "last_message_id": message_id}, indent=2), encoding="utf-8")
     print("Rappel envoyé.")
+    log_line(f"🔔 Rappel de bump envoyé · prochain rappel vers <t:{int(now + interval)}:t>")
     return 0
 
 
