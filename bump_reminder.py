@@ -47,15 +47,31 @@ def build_message() -> tuple[str, dict]:
     return content, allowed
 
 
-def send(webhook: str, content: str, allowed: dict) -> None:
+def send(webhook: str, content: str, allowed: dict) -> str | None:
+    """Poste le message et retourne son identifiant (pour pouvoir le supprimer plus tard)."""
     payload = {"username": env("BOT_NAME", "Rappel bump"), "content": content, "allowed_mentions": allowed}
     req = urllib.request.Request(
-        webhook,
+        webhook + ("&" if "?" in webhook else "?") + "wait=true",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20):
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        try:
+            return str(json.loads(resp.read().decode("utf-8")).get("id") or "") or None
+        except ValueError:
+            return None
+
+
+def delete_message(webhook: str, message_id: str) -> None:
+    """Supprime un ancien rappel (ignore les erreurs : message déjà supprimé, etc.)."""
+    req = urllib.request.Request(
+        f"{webhook}/messages/{message_id}", headers={"User-Agent": USER_AGENT}, method="DELETE"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20):
+            pass
+    except (urllib.error.URLError, TimeoutError, OSError):
         pass
 
 
@@ -98,7 +114,8 @@ def main() -> int:
 
     interval = max(60, int(env("BUMP_INTERVAL_MIN") or "130")) * 60
     now = time.time()
-    last = float(read_state().get("last_ping", 0))
+    state = read_state()
+    last = float(state.get("last_ping", 0))
 
     if not args.force:
         if now - last < interval:
@@ -108,12 +125,17 @@ def main() -> int:
             print("Heures calmes : pas de rappel.")
             return 0
 
+    # Un seul rappel visible à la fois : on supprime l'ancien avant d'en poster un nouveau
+    previous_id = state.get("last_message_id")
+    if previous_id and env("BUMP_DELETE_PREVIOUS", "true").lower() not in ("0", "false", "non", "no"):
+        delete_message(webhook, str(previous_id))
+
     try:
-        send(webhook, content, allowed)
+        message_id = send(webhook, content, allowed)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         print(f"Échec d'envoi : {exc}", file=sys.stderr)
         return 0  # on réessaiera au prochain passage
-    STATE_FILE.write_text(json.dumps({"last_ping": now}, indent=2), encoding="utf-8")
+    STATE_FILE.write_text(json.dumps({"last_ping": now, "last_message_id": message_id}, indent=2), encoding="utf-8")
     print("Rappel envoyé.")
     return 0
 
