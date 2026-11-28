@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "7,22,37,52 * * * *"   # filet de sécurité ; le déclencheur principal est cron-job.org
   workflow_dispatch:
+    inputs:
+      debug:
+        description: "Test : afficher ce que le bot lit dans le salon (ne poste rien dans le salon bump)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -31,16 +36,21 @@ jobs:
           BUMP_QUIET_FROM: ${{ secrets.BUMP_QUIET_FROM }}
           BUMP_QUIET_TO: ${{ secrets.BUMP_QUIET_TO }}
           BUMP_DELETE_PREVIOUS: ${{ secrets.BUMP_DELETE_PREVIOUS }}
-          LOG_WEBHOOK_URL: ${{ secrets.BUMP_LOG_WEBHOOK_URL }}
+          LOG_WEBHOOK_URL: ${{ secrets.LOG_WEBHOOK_URL }}
           BUMP_LOG_EVERY_CHECK: ${{ secrets.BUMP_LOG_EVERY_CHECK }}
-        run: python3 bump_reminder.py
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          BUMP_CHANNEL_ID: ${{ secrets.BUMP_CHANNEL_ID }}
+          DISBOARD_BOT_ID: ${{ secrets.DISBOARD_BOT_ID }}
+          BUMP_AFTER_BUMP_MIN: ${{ secrets.BUMP_AFTER_BUMP_MIN }}
+          BUMP_SUCCESS_TEXT: ${{ secrets.BUMP_SUCCESS_TEXT }}
+        run: python3 bump_reminder.py ${{ inputs.debug && '--debug' || '' }}
 
-      - name: Sauvegarder l'heure du dernier rappel
+      - name: Sauvegarder l'état (dernier rappel, dernier bump)
         run: |
           if [ -n "$(git status --porcelain bump_state.json)" ]; then
             git config user.name "bump-reminder"
             git config user.email "bump-reminder@users.noreply.github.com"
             git add bump_state.json
-            git commit -m "Dernier rappel de bump"
+            git commit -m "État du rappel de bump"
             git push
           fi
