@@ -31,6 +31,8 @@ jobs:
           BUMP_QUIET_FROM: ${{ secrets.BUMP_QUIET_FROM }}
           BUMP_QUIET_TO: ${{ secrets.BUMP_QUIET_TO }}
           BUMP_DELETE_PREVIOUS: ${{ secrets.BUMP_DELETE_PREVIOUS }}
+          LOG_WEBHOOK_URL: ${{ secrets.LOG_WEBHOOK_URL }}
+          BUMP_LOG_EVERY_CHECK: ${{ secrets.BUMP_LOG_EVERY_CHECK }}
         run: python3 bump_reminder.py
 
       - name: Sauvegarder l'heure du dernier rappel
